@@ -8,22 +8,21 @@ public class RollingNumberController : MonoBehaviour
     [System.Serializable]
     public class Digit
     {
-        public RectTransform mask;     // Rect with RectMask2D (the window)
-        public RectTransform rollText; // The TextMeshProUGUI's RectTransform inside the mask
+        public RectTransform mask;     
+        public RectTransform rollText;
+        public int baseDigit;
+
         [HideInInspector] public TMP_Text tmp;
         [HideInInspector] public float lineHeight;
-        [HideInInspector] public int baseDigit; // what the column is currently showing (0-9)
-        [HideInInspector] public float scroll;  // 0..1 toward next (up-roll)
     }
 
-    [Tooltip("Least-significant digit first (ones at index 0).")]
     public List<Digit> digits = new List<Digit>();
 
-    public List<TMP_FontAsset> fontAssets; // for swapping fonts if needed
+    public List<TMP_FontAsset> fontAssets;
 
     [Header("Motion")]
-    public float rollSpeed = 25f;              // units per second the overall numeric value moves
-    public bool allowDownward = true;          // if false, force upward only
+    public float rollSpeed = 25f;
+    public bool allowDownward = true;
     public AnimationCurve ease = AnimationCurve.EaseInOut(0, 0, 1, 1);
 
     [Header("Monospace Width (optional)")]
@@ -33,10 +32,6 @@ public class RollingNumberController : MonoBehaviour
     [SerializeField] private float displayedValue = 0f;
     [SerializeField] private float targetValue = 0f;
 
-    [SerializeField] private GameObject tensPlaceParent;
-    [SerializeField] private GameObject thousandsPlaceParent;
-    [SerializeField] private GameObject millionsPlaceParent;
-
     [SerializeField] private TMP_Text thousandsPlaceComma;
     [SerializeField] private TMP_Text millionsPlaceComma;
 
@@ -45,28 +40,26 @@ public class RollingNumberController : MonoBehaviour
 
     public void CycleNumberFont(int index = -1)
     {
-        for(int i = 0; i < digits.Count; i++)
+        int finalIndex = index;
+        if (finalIndex == -1)
         {
-            if(digits[i].tmp == null) continue;
-            if(index == -1)
-            {
-                int currentFontIndex = fontAssets.IndexOf(digits[i].tmp.font);
-                int nextFontIndex = (currentFontIndex + 1) % fontAssets.Count;
-                digits[i].tmp.font = fontAssets[nextFontIndex];
-            }
-            else
-            {
-                if(index >= 0 && index < fontAssets.Count)
-                {
-                    digits[i].tmp.font = fontAssets[index];
-                }
-                else if (index >= 0)
-                {
-                    int cycledIndex = index % fontAssets.Count;
-                    digits[i].tmp.font = fontAssets[cycledIndex];
-                }
-            }
+            int currentFontIndex = fontAssets.IndexOf(digits[0].tmp.font);
+            finalIndex = (currentFontIndex + 1) % fontAssets.Count;
         }
+        else if (finalIndex >= 0)
+        {
+            finalIndex = finalIndex % fontAssets.Count;        
+        }
+
+        for (int i = 0; i < digits.Count; i++)
+        {
+            digits[i].tmp.font = fontAssets[finalIndex];
+        }
+
+        thousandsPlaceComma.font = fontAssets[finalIndex];
+        thousandsPlaceComma.ForceMeshUpdate();
+        millionsPlaceComma.font = fontAssets[finalIndex];
+        millionsPlaceComma.ForceMeshUpdate();
 
         this.totalHeight = 0f;
         foreach (var d in digits)
@@ -97,7 +90,6 @@ public class RollingNumberController : MonoBehaviour
                 // Uses TMP material property "Mono Spacing"
                 var mat = d.tmp.fontMaterial; // instance
                 mat.EnableKeyword("MONOSPACE"); // harmless if missing
-                //mat.SetFloat(ShaderUtilities.ID_mo, monoSpacingMaterialOverride);
                 d.tmp.fontMaterial = mat;
             }
         }
@@ -113,13 +105,13 @@ public class RollingNumberController : MonoBehaviour
             if (d.tmp.textInfo.lineCount > 0)
                 d.lineHeight = d.tmp.textInfo.lineInfo[0].lineHeight;
             else
-                d.lineHeight = d.tmp.fontSize; // fallback
+                d.lineHeight = d.tmp.fontSize; 
 
             this.totalHeight += d.lineHeight;
         }
 
         SetInstant(0);
-        UpdateColumns(); // position texts correctly
+        UpdateColumns(); 
     }
 
     void Update()
@@ -147,7 +139,6 @@ public class RollingNumberController : MonoBehaviour
     {
         for (int k = 0; k < digits.Count; k++)
         {
-            //0-8 in this case, settings digits in pattern: XXX XXX XXX
             Digit d = digits[k];
             if (d.tmp == null) continue;
 
@@ -180,40 +171,29 @@ public class RollingNumberController : MonoBehaviour
                 d.tmp.gameObject.SetActive(true);
             }
 
-            // For downward motion, flip the sense
-            if (allowDownward && targetValue < displayedValue)
-            {
-                baseDigit = (baseDigit + 9) % 10; // show previous digit as base
-            }
-
             d.baseDigit = baseDigit;
 
-            float offsetY = baseDigit * d.lineHeight;
+            float offsetY = (baseDigit * d.lineHeight) - (d.lineHeight / 2f);
 
             Vector2 pos = d.rollText.anchoredPosition;
-            //TODO: get all line heights of all digits if you want to properly support different fonts
             pos.y = offsetY;
             d.rollText.anchoredPosition = pos;
         }
     }
     public static int DigitAt(float value, int digitIndex)
     {
-        // Work with absolute integer part of value
         int intValue = Mathf.Abs((int)value);
 
-        // Example: value = 100, digitIndex = 4 → too high
         int maxDigits = intValue == 0 ? 1 : (int)Mathf.Floor(Mathf.Log10(intValue)) + 1;
+
         if (digitIndex >= maxDigits)
             return -1;
 
-        // Strip away lower digits
         int shifted = intValue / (int)Mathf.Pow(10, digitIndex);
 
-        // Isolate the requested digit
         return shifted % 10;
     }
 
-    // --- Public API ---
     public void SetTarget(int newTarget)
     {
         targetValue = Mathf.Max(0, newTarget);
@@ -222,10 +202,14 @@ public class RollingNumberController : MonoBehaviour
     public void Add(int delta)
     {
         targetValue = Mathf.Max(0, Mathf.RoundToInt(targetValue) + delta);
+
+        UpdateColumns();
     }
 
     public void SetInstant(int value)
     {
         displayedValue = targetValue = Mathf.Max(0, value);
+
+        UpdateColumns();
     }
 }
